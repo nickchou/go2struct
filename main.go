@@ -19,13 +19,44 @@ import (
 var Dbo *gorm.DB
 
 func main() {
-	tplPath := "./template/gorm.tpl"
-	filePath := "./tmodels"
+	driver := ""  //Mysql驱动，目前只支持mysql
+	sqlconn := "" //数据库链接
+	tplPath := "" //模板文件位置  ./template/gorm.tpl
+	goPath := ""  //生成出来的go代码存放位置，不传的话生成在当前文件夹下
 	dbInfo := &models.DbInfo{}
-	//初始化数据库连接
-	initDB()
-	//获取数据库所有的表和列，并初始化好命名空间
-	tables := getDataBaseInfo("models")
+	//curPath, _ := os.Getwd()
+	//fmt.Println(curPath)
+
+	//打印参数,第0个参数是exe的路径
+	if len(os.Args) < 4 {
+		fmt.Println("参数不全！！")
+		return
+	} else {
+		driver = os.Args[1]
+		sqlconn = os.Args[2]
+		tplPath = os.Args[3]
+		fmt.Println("driver:", driver)
+		fmt.Println("sqlconn:", sqlconn)
+		fmt.Println("tplPath:", tplPath)
+	}
+	if len(os.Args) > 4 {
+		goPath = os.Args[4]
+		fmt.Println("goPath:", goPath)
+	}
+
+	//获取要生成模板的绝对路径
+	genDir, _ := filepath.Abs(goPath)
+	fmt.Println("curr_dir:", genDir)
+	//return
+	//获取实体类的命名空间,注意：path.Base不能解析windows下的“\”，需要替换为“/”
+	goNameSapce := path.Base(strings.Replace(genDir, "\\", "/", -1))
+	//fmt.Println("goNameSapce:", goNameSapce)
+
+	//setp 1、初始化数据库连接
+	initDB(driver, sqlconn)
+	//setp 2、获取数据库所有的表和列，并初始化好命名空间
+	tables := getDataBaseInfo(goNameSapce)
+
 	dbInfo.DbTables = tables
 	//dbInfo.DbColumns = columns
 	//fmt.Println(dbInfo.DbTables)
@@ -45,51 +76,41 @@ func main() {
 	//new 模板，命名temHtml
 	tplFile, _ := template.New("temHtml").Parse(tplStr)
 	//创建多级目录
-	os.MkdirAll(filePath, os.ModePerm)
-	curPath, _ := os.Getwd()
-	fmt.Println(curPath)
-	//获取要生成模板的绝对路径
-	genDir, _ := filepath.Abs(filePath)
-	fmt.Println(genDir)
-	genDir = strings.Replace(genDir, "\\", "/", -1)
-	//命名空间
-	model := path.Base(genDir)
-	fmt.Println(model)
-	//遍历表
+	os.MkdirAll(genDir, os.ModePerm)
+	//遍历表,生成实体
 	for i, table := range dbInfo.DbTables {
-		if i > 0 {
-			break
-		}
-		fmt.Println("tablename:", table.TableName)
-		fmt.Println("tablename:", table.PackageName)
-		fmt.Println("==========================end==========================")
+		fmt.Println(i+1, "/", len(dbInfo.DbTables), table.TableName)
+		// if i > 0 {
+		// 	break
+		// }
 		//根据模板生成最终数据
 		buf := new(bytes.Buffer)
 		tplFile.Execute(buf, table)
 		//fmt.Println(buf.String())
 		//生成go文件路径
-		goFilePath := fmt.Sprintf("%s//%s%s", filePath, table.TableName, ".go")
-		fmt.Println(goFilePath)
-		f, err := os.Create(filePath + table.TableName + ".go")
+		currFile := path.Join(genDir, fmt.Sprintf("%s%s", table.TableName, ".go"))
+		f, err := os.Create(currFile)
 		defer f.Close()
 		if err == nil {
 			//保存文件
 			f.Write([]byte(buf.String()))
+		} else {
+			fmt.Println(err)
 		}
 	}
 }
-func saveGoFile() {
+func saveStructFile() {
 
 }
 
 //initdb 初始化数据库连接池
-func initDB() {
+func initDB(driver string, sqlconn string) {
 	var err error
 	Dbo, err = gorm.Open("mysql", "root:123456@(127.0.0.1:3306)/scriptdb?charset=utf8")
 	if err != nil {
 		panic(err)
 	} else {
-		Dbo.LogMode(true)
+		//Dbo.LogMode(true)
 		//设置最大连接数（默认=2），如果<=0不保留空闲连接数
 		Dbo.DB().SetMaxIdleConns(1)
 		//设置最大的数据库连接数，默认值=0（没有限制）
@@ -111,12 +132,12 @@ func getDataBaseInfo(spaceName string) []models.Tables {
 		columns[j].GoType = objcTypeStr(columns[j].DataType)      //数据库类型转golang类型
 	}
 	var k int = 0
-	//循环表信息，设置命名空间
+	//循环表信息，设置命名空间，并把表的列名都添加进去方便template使用
 	for i := range tables {
 		tables[i].PackageName = spaceName
 		tables[i].GoName = TitleCasedName(tables[i].TableName) //格式化表名
 		tables[i].Imports = make(map[string]string)            //初始化当前表的包
-		//这里减少了重复循环，前提是表明、列名里的TABLE_NAME排过序的，否则会有问题
+		//这里减少了重复循环，前提是表名、列名里的TABLE_NAME排过序的，否则会有问题
 		for ; k < len(columns); k++ {
 			if tables[i].TableName == columns[k].TableName {
 				//把列名添加到表的数据结构里
@@ -155,7 +176,7 @@ func objcTypeStr(columnType string) string {
 		goType = "float"
 		break
 	case "double":
-		goType = "double"
+		goType = "float64"
 		break
 	case "tinyblob", "blob", "mediumblob", "longblob", "bytea":
 		goType = "string"
