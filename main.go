@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"go2struct/models"
+	"github.com/nickchou/go2struct/models"
 	"html/template"
 	"io/ioutil"
 	"os"

@@ -1,4 +1,4 @@
-module go2struct
+module github.com/nickchou/go2struct
 
 go 1.13
 
